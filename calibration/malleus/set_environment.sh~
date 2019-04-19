@@ -1,0 +1,183 @@
+#!/bin/bash
+
+# for starters make sure they're running it correctly
+# in bash, if you try to "./script" it won't expose
+# these changes to the environment.. They'll be immediately
+# reverted at the end of the script.
+if [ ! -z "${BASH}" ]; then
+  if [[ "$(basename -- "$0")" == "set_environment.sh" ]]; then
+    echo "ERROR: Don't run $0, source it" >&2
+    exit 1
+  fi
+  if [[ "$(basename -- "$0")" == "set_library_paths.sh" ]]; then
+    echo "ERROR: Don't run $0, source it" >&2
+    exit 1
+  fi
+
+  export MLX_SHELL=bash
+elif [ ! -z "${ZSH_NAME}" ]; then
+  if [[ $ZSH_EVAL_CONTEXT == "toplevel" ]]; then
+    echo "ERROR: Don't run $0, source it" >&2
+    exit 1
+  fi
+
+  export MLX_SHELL=zsh
+else
+  echo "WARNING: Shell not recognized. Treating it like bash."
+  export MLX_SHELL=bash
+fi
+
+export BUILD_DIR=/home/local/Development/repo_nova/leapcore/malleus/build
+export MLX_MASTER_DIR=/home/local/Development/repo_nova/leapcore/malleus/mlx
+export MLX_SUBTREES_TESTDATA=/home/local/Development/repo_nova/leapcore/malleus/../mlx_test_data
+export PATH=/home/local/Development/repo_nova/leapcore/malleus/build/bin:${PATH}
+
+# Gesture environment variables.
+
+# Sets deactivated static gestures.
+if [ -z ${GESTURES_DEACTIVATED_STATIC_DHPS+unset} ]; then
+    export GESTURES_DEACTIVATED_STATIC_DHPS=" "
+fi
+
+# Sets deactivated semantic gestures.
+if [ -z ${GESTURES_DEACTIVATED_SEMANTIC_DHPS+unset} ]; then
+    export GESTURES_DEACTIVATED_SEMANTIC_DHPS=" "
+fi
+
+# Sets hand type.
+if [ -z ${GESTURES_HAND_TYPE+unset} ]; then
+    export GESTURES_HAND_TYPE="both"
+fi
+
+# Sets approach to use for gestures.
+if [ -z ${GESTURES_APPROACH} ]; then
+    export GESTURES_APPROACH="rf"
+fi
+
+# Create directory /tmp/mlx/ if it does not exist for the MLX-Unity3D bridge
+if [ -d /tmp/mlx ]; then
+  echo "MLX-Unity3D bridge directory /tmp/mlx/ exists."
+  # set the permisssions on /tmp/mlx to allow for multiple users to access it
+  sudo chmod -R 777 /tmp/mlx
+else
+  echo "MLX-Unity3D bridge directory /tmp/mlx/ does not exist.  Creating directory."
+  mkdir /tmp/mlx
+  # set the permisssions on /tmp/mlx to allow for multiple users to access it
+  sudo chmod -R 777 /tmp/mlx
+fi
+
+## See if we can directly query the unity to get the WD_ID
+export WD_ID=`wd_getid -s -q`
+
+## If WD_ID isn't already set, see if there's a wd_id.sh script
+if [ -z "$WD_ID" ];
+then
+  if [ -f ${MLX_MASTER_DIR}/wd_id.sh ];
+  then
+      source ${MLX_MASTER_DIR}/wd_id.sh
+      echo "WD_ID=${WD_ID}"
+  else
+      echo "Did not find wd_id.sh in ${MLX_MASTER_DIR}. Make sure WD_ID is set."
+  fi
+fi
+
+if [ -z "$WD_ID" ];
+then
+  echo "===== WD_ID is unset ====="
+fi
+
+# Set camera device ids as environment variables
+# Unset previously defined variables
+for s in `env | grep ^WD2_CAM | cut -f 1 -d =`; do
+  unset $s
+done
+# Query for local setup and set env vars
+count=0;
+if [ -d "/sys/module/mlvcm" ];
+then
+  # In this way, the ls won't trigger errors
+  if ls /sys/module/mlvcm/drivers/pci\:mlvcm/00* 1> /dev/null 2>&1;
+  then
+    cam_ids=`ls -1 /sys/module/mlvcm/drivers/pci\:mlvcm/00*/video4linux`
+    for cam_id in $cam_ids
+    do
+      export WD2_CAM$count=/dev/$cam_id
+      count=$((count+1))
+    done
+  else
+    echo "Looks like a WD2 is not connected..."
+  fi
+fi
+if [ -d "/sys/module/mlvcm3" ];
+then
+  if ls /sys/module/mlvcm3/drivers/pci\:mlvcm3/00* 1> /dev/null 2>&1;
+  then
+  # In this way, the ls won't trigger errors
+    cam_ids=`ls -1 /sys/module/mlvcm3/drivers/pci\:mlvcm3/00*/video4linux`
+    for cam_id in $cam_ids
+    do
+      export WD3_CAM$count=/dev/$cam_id
+      count=$((count+1))
+    done
+  else
+    echo "Looks like a WD3 is not connected.."
+  fi
+
+else
+  echo "You do not have /sys/module/mlvcm3. Do you want to reload MLVC first?"
+fi
+
+if [ "$count" -eq "3" ]
+then
+  export WD2_CAM_EYE=$WD2_CAM0
+  export WD2_CAM_WORLD=$WD2_CAM1
+  export WD2_CAM_STEREO=$WD2_CAM2
+  export WD_VERSION=2
+  echo WD2_CAM_EYE=$WD2_CAM_EYE
+  echo WD2_CAM_WORLD=$WD2_CAM_WORLD
+  echo WD2_CAM_STEREO=$WD2_CAM_STEREO
+elif [ "$count" -eq "4" ]
+then
+  export WD3_CAM_EYE=$WD3_CAM0
+  export WD3_CAM_OLDWORLD=$WD3_CAM1
+  export WD3_CAM_STEREO=$WD3_CAM2
+  export WD3_CAM_WORLD=$WD3_CAM3
+  export WD_VERSION=3
+  echo WD3_CAM_EYE=$WD3_CAM_EYE
+  echo WD3_CAM_OLDWORLD=$WD3_CAM_OLDWORLD
+  echo WD3_CAM_STEREO=$WD3_CAM_STEREO
+  echo WD3_CAM_WORLD=$WD3_CAM_WORLD
+elif [ "$count" -eq "0" ]
+then
+  echo "You have no helmet cameras. Yikes."
+else
+  echo "You have $count helmet cameras, which is weird."
+fi
+
+export MLX_GAIN=0
+export DEBUG_HEAD_TRACKING="false"
+
+if [ -z "$ABC_MOTION_TABLE" ];
+then
+  export ABC_MOTION_TABLE="SLOW_MOTION"
+fi
+
+## Set default arguments for mlx_picture image recognition.
+
+# Use a 'no models' marker if the models list isn't set.
+# This can't be an empty string, because MLX treats empty
+# env variables as if they're unset
+export PIC_DETECTION_MODELS=${PIC_DETECTION_MODELS:-!}
+
+# Use the default picture tracking engine parameters if not otherwise specified
+export PIC_DETECTION_PARAMS=${PIC_DETECTION_PARAMS:-${MLX_MASTER_DIR}/mlx_picture/config/default_picture_engine_params.yaml}
+
+# Turn debugging off by default (i.e., don't generate images)
+export PIC_DETECTION_DEBUG=${PIC_DETECTION_DEBUG:-false}
+
+# Set default values for depth camera.
+export DEPTH_SENSOR_ID=depth_pmd_pico_flexx
+export DEPTH_SENSOR_ORIENTATION=180
+
+#Output anything outputted by the test program if the test should fail
+export CTEST_OUTPUT_ON_FAILURE=1
